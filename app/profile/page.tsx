@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -105,66 +106,93 @@ export default function ProfilePage() {
   }
 
   if (loading) {
-    return <main className="p-8">Loading...</main>;
+    return (
+      <main className="min-h-screen bg-slate-100 p-8 text-zinc-900">
+        Loading...
+      </main>
+    );
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center">
-      <form
-        onSubmit={handleSave}
-        className="w-full max-w-md space-y-4"
-      >
-        <h1 className="text-2xl font-bold">Profile</h1>
-
-        {avatarUrl && (
-          <img
-            src={avatarUrl}
-            alt="Profile"
-            className="h-24 w-24 rounded-full object-cover"
-          />
-        )}
-
-        <div>
-          <label className="block mb-1">Profile photo</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) =>
-              setAvatarFile(e.target.files?.[0] ?? null)
-            }
-          />
-        </div>
-
-        <div>
-          <label className="block mb-1">First name</label>
-          <input
-            type="text"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-          />
-        </div>
-
-        <div>
-          <label className="block mb-1">Last name</label>
-          <input
-            type="text"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            className="w-full border rounded px-3 py-2"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded bg-black px-4 py-2 text-white"
+    <main className="min-h-screen bg-slate-100 px-6 py-12 text-zinc-900">
+      <div className="mx-auto max-w-xl">
+        <Link
+          href="/"
+          className="mb-6 inline-block rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-zinc-800 shadow-sm transition hover:bg-gray-50"
         >
-          {saving ? "Saving..." : "Save Profile"}
-        </button>
+          ← Back to Captions
+        </Link>
 
-        <LogoutButton />
-      </form>
+        <form
+          onSubmit={handleSave}
+          className="space-y-6 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm"
+        >
+          <div>
+            <h1 className="text-3xl font-bold">Profile</h1>
+            <p className="mt-1 text-gray-500">
+              Update your personal information and profile photo.
+            </p>
+          </div>
+
+          {avatarUrl && (
+            <img
+              src={avatarUrl}
+              alt="Profile"
+              className="h-28 w-28 rounded-full border border-gray-200 object-cover shadow-sm"
+            />
+          )}
+
+          <div>
+            <label className="mb-2 block font-medium">
+              Profile photo
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) =>
+                setAvatarFile(e.target.files?.[0] ?? null)
+              }
+              className="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block font-medium">
+              First name
+            </label>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-zinc-500"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block font-medium">
+              Last name
+            </label>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 outline-none focus:border-zinc-500"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-zinc-900 px-5 py-2.5 font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Profile"}
+            </button>
+
+            <LogoutButton />
+          </div>
+        </form>
+      </div>
     </main>
   );
 }
