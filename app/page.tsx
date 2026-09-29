@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "@/components/LogoutButton";
 
@@ -17,26 +18,8 @@ export default async function Home() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Gated UI: logged-out users cannot see captions.
   if (!user) {
-    return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center text-zinc-900">
-        <div className="text-center space-y-5">
-          <h1 className="text-4xl font-bold">Captions</h1>
-
-          <p className="text-gray-600">
-            Sign in to view captions.
-          </p>
-
-          <Link
-            href="/login"
-            className="inline-block rounded-lg bg-black px-6 py-3 text-white"
-          >
-            Sign in with Google
-          </Link>
-        </div>
-      </main>
-    );
+    redirect("/login");
   }
 
   const { data, error } = await supabase
