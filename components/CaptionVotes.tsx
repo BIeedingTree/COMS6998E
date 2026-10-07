@@ -3,38 +3,11 @@
 import { useActionState } from "react";
 import { voteOnCaption } from "@/app/actions";
 
-export default function CaptionVotes({ captionId, selectedVote }: {
-  captionId: string;
-  selectedVote: number | null;
-}) {
+export default function CaptionVotes({ captionId, selectedVote }: { captionId: string; selectedVote: number | null }) {
   const [state, action, pending] = useActionState(voteOnCaption, {});
-
-  return (
-    <form action={action} className="mt-4">
-      <input type="hidden" name="caption_id" value={captionId} />
-      <div className="flex gap-2">
-        {([1, -1] as const).map((vote) => (
-          <button
-            key={vote}
-            type="submit"
-            name="vote"
-            value={vote}
-            disabled={pending}
-            aria-label={vote === 1 ? "Upvote caption" : "Downvote caption"}
-            aria-pressed={selectedVote === vote}
-            className={`rounded-lg border px-4 py-2 text-xl disabled:opacity-50 ${
-              selectedVote === vote
-                ? "border-zinc-900 bg-zinc-200 ring-1 ring-zinc-900"
-                : "border-gray-300 bg-white hover:bg-gray-100"
-            }`}
-          >
-            {vote === 1 ? "👍" : "👎"}
-          </button>
-        ))}
-      </div>
-      <p aria-live="polite" className={`mt-2 text-sm ${state.error ? "text-red-700" : "text-gray-600"}`}>
-        {pending ? "Saving vote..." : state.error ?? state.message}
-      </p>
-    </form>
-  );
+  return <form action={action} className="post-reactions">
+    <input type="hidden" name="caption_id" value={captionId} />
+    <div className="reaction-buttons">{([1, -1] as const).map(vote => <button key={vote} type="submit" name="vote" value={vote} disabled={pending} aria-label={vote === 1 ? "Funny: upvote post" : "Miss: downvote post"} aria-pressed={selectedVote === vote} className={`reaction ${selectedVote === vote ? "reaction-selected" : ""}`}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={vote === 1 ? "M10 16V4m-5 5 5-5 5 5" : "M10 4v12m-5-5 5 5 5-5"} /></svg>{vote === 1 ? "Funny" : "Miss"}{selectedVote === vote && <span className="reaction-check" aria-hidden="true">✓</span>}</button>)}</div>
+    <span aria-live="polite" className={`reaction-status ${state.error ? "status-error" : ""}`}>{pending ? "Saving…" : state.error ?? state.message}</span>
+  </form>;
 }

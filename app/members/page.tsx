@@ -1,4 +1,6 @@
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import Icon from "@/components/Icon";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,23 +16,9 @@ export default async function MembersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-12 text-zinc-900">
-      <div className="mx-auto max-w-xl">
-        <Link
-          href="/"
-          className="mb-6 inline-block rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-zinc-800 shadow-sm transition hover:bg-gray-50"
-        >
-          ← Back to Captions
-        </Link>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
-          <h1 className="text-3xl font-bold">Members Only</h1>
-
-          <p className="mt-3 text-gray-600">
-            You can see this page because you are logged in.
-          </p>
-        </div>
-      </div>
-    </main>
+    <AppShell active="members" email={user.email}>
+      <header className="page-header"><div><p className="eyebrow">IN GOOD COMPANY</p><h1>Members<span className="brand-dot">.</span></h1><p>A little corner of campus, just for us.</p></div></header>
+      <section className="utility-card"><span className="utility-icon"><Icon name="members" /></span><span className="eyebrow">YOU’RE IN</span><h2>Welcome to the campus corner.</h2><p>This space is for signed-in members. You’re all set to create an AI post and weigh in on the timeline.</p><Link href="/" className="primary-button">Back to the feed <Icon name="arrow" /></Link></section>
+    </AppShell>
   );
 }

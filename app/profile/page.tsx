@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -107,29 +107,23 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-100 p-8 text-zinc-900">
-        Loading...
+      <main className="profile-loading">
+        Loading your profile…
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-6 py-12 text-zinc-900">
-      <div className="mx-auto max-w-xl">
-        <Link
-          href="/"
-          className="mb-6 inline-block rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-zinc-800 shadow-sm transition hover:bg-gray-50"
-        >
-          ← Back to Captions
-        </Link>
-
+    <AppShell active="profile">
+      <header className="page-header"><div><p className="eyebrow">MAKE YOURSELF AT HOME</p><h1>Your profile<span className="brand-dot">.</span></h1><p>The person behind the reactions.</p></div></header>
+      <div className="profile-wrap">
         <form
           onSubmit={handleSave}
-          className="space-y-6 rounded-2xl border border-gray-200 bg-white p-8 shadow-sm"
+          className="profile-form space-y-6"
         >
           <div>
-            <h1 className="text-3xl font-bold">Profile</h1>
-            <p className="mt-1 text-gray-500">
+            <h2 className="text-xl font-semibold">The basics</h2>
+            <p className="mt-2 text-sm text-stone-500">
               Update your personal information and profile photo.
             </p>
           </div>
@@ -184,7 +178,7 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-zinc-900 px-5 py-2.5 font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50"
+              className="primary-button"
             >
               {saving ? "Saving..." : "Save Profile"}
             </button>
@@ -193,6 +187,6 @@ export default function ProfilePage() {
           </div>
         </form>
       </div>
-    </main>
+    </AppShell>
   );
 }

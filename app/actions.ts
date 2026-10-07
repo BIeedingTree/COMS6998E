@@ -13,7 +13,7 @@ export async function generateCaption(
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) return { error: "Please sign in to generate a caption." };
+    if (authError || !user) return { error: "Please sign in to generate a post." };
 
     const value = formData.get("topic");
     const topic = typeof value === "string" ? value.trim() : "";
@@ -22,16 +22,20 @@ export async function generateCaption(
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return { error: "Caption generation is not configured yet. Please try again later." };
+    if (!apiKey) return { error: "Post generation is not configured yet. Please try again later." };
 
-    const prompt = `Write exactly one short, funny caption about the following topic:
+    const prompt = `Write one short, funny social-media-style post about:
 
 ${topic}
 
-The audience is college students at Columbia who enjoy campus life and exploring New York City.
-Keep the caption to one sentence, under 300 characters.
-Do not include quotation marks.
-Return only the caption and nothing else.`;
+The audience is college students, especially Columbia students living in New York City.
+Imagine Sam: a chronically online junior from the Midwest who lives in the dorms and explores NYC on weekends. Let that perspective subtly influence the humor without naming Sam.
+The tone should be witty, casual, observational, and chronically online.
+The post must work entirely as text without an accompanying image.
+Use one or two short sentences, under 300 characters.
+Do not wrap the response in quotation marks. Do not use Markdown, fake usernames, or excessive hashtags.
+Do not explain the joke or prefix the response with anything.
+Return only the final post.`;
 
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
@@ -41,7 +45,7 @@ Return only the caption and nothing else.`;
     });
     const caption = response.text?.trim();
     if (!caption || caption.length > 500) {
-      return { error: "Gemini did not return a usable short caption. Please try another topic." };
+      return { error: "Gemini did not return a usable short post. Please try another topic." };
     }
 
     const { error } = await supabase.from("captions").insert({
@@ -50,14 +54,14 @@ Return only the caption and nothing else.`;
       user_id: user.id,
     });
     if (error) {
-      return { error: "Your caption could not be saved. Please try again." };
+      return { error: "Your post could not be saved. Please try again." };
     }
   } catch {
-    return { error: "Caption generation failed. Please try again in a moment." };
+    return { error: "Post generation failed. Please try again in a moment." };
   }
 
   revalidatePath("/");
-  return { message: "Caption saved! Find it at the top of the feed." };
+  return { message: "Your AI post is on the timeline." };
 }
 
 export async function voteOnCaption(
@@ -76,7 +80,7 @@ export async function voteOnCaption(
         !/^[0-9]{1,19}$/.test(captionId) ||
         BigInt(captionId) > BigInt("9223372036854775807") ||
         (vote !== "1" && vote !== "-1")) {
-      return { error: "Choose a valid caption and a thumbs-up or thumbs-down vote." };
+      return { error: "Choose a valid post and a Funny or Miss reaction." };
     }
 
     const { error } = await supabase.from("caption_votes").upsert({
@@ -87,7 +91,7 @@ export async function voteOnCaption(
 
     if (error) {
       return { error: error.code === "23503"
-        ? "This caption is no longer available. Refresh the page."
+        ? "This post is no longer available. Refresh the page."
         : "Your vote could not be saved. Please try again." };
     }
   } catch {
