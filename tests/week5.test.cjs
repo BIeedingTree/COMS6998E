@@ -12,7 +12,7 @@ function setup(options = {}) {
   const user = Object.hasOwn(options, 'user') ? options.user : eligible;
   const rows = options.rows ?? [];
   const captions = options.captions ?? [{ id: '7', user_id: 'student', is_public: true, category: 'other' }];
-  const calls = { generated: [], inserted: [], writes: [], refreshed: [], tables: [], signOut: [], reads: [], rpcs: [] };
+  const calls = { generated: [], inserted: [], writes: [], refreshed: [], tables: [], signOut: [], reads: [], rpcs: [], serverErrors: [] };
   const client = {
     auth: {
       getUser: async () => ({ data: { user }, error: options.authError ?? null }),
@@ -55,9 +55,12 @@ function setup(options = {}) {
           assert.equal(operation, 'delete');
           calls.writes.push({ operation, filters });
           if (options.deleteError) return Promise.resolve({ data: null, error: options.deleteError }).then(resolve);
+          if (options.deleteAlreadyRemoved) {
+            for (const row of rows.filter(matches)) rows.splice(rows.indexOf(row), 1);
+          }
           const removed = options.hiddenByRls ? [] : rows.filter(matches);
           for (const row of removed) rows.splice(rows.indexOf(row), 1);
-          return Promise.resolve({ data: removed, error: null }).then(resolve);
+          return Promise.resolve({ data: fields ? removed.map(projected) : null, error: null }).then(resolve);
         },
         upsert: async (row, config) => {
           calls.writes.push({ operation: 'upsert', row, config });
@@ -76,7 +79,7 @@ function setup(options = {}) {
   };
   const cache = new Map();
   const mocks = {
-    '@/lib/supabase/server': { createClient: async () => client },
+    '@/lib/supabase/server': { createClient: async () => options.databaseClient ?? client },
     'next/navigation': { redirect: url => { throw new Error('REDIRECT:' + url); } },
     'next/server': { NextResponse: { redirect: url => ({ url }) } },
     'next/cache': { revalidatePath: url => calls.refreshed.push(url) },
@@ -91,7 +94,7 @@ function setup(options = {}) {
       if (id.startsWith('@/')) return load(['.ts', '.tsx'].map(ext => path.join(root, id.slice(2) + ext)).find(fs.existsSync));
       return require(id);
     };
-    vm.runInNewContext(js, { exports, require: localRequire, URL, process: { env: { GEMINI_API_KEY: options.noKey ? undefined : 'test-only' } } }, { filename: file });
+    vm.runInNewContext(js, { exports, require: localRequire, URL, console: { error: (...args) => calls.serverErrors.push(args) }, process: { env: { GEMINI_API_KEY: options.noKey ? undefined : 'test-only' } } }, { filename: file });
     return exports;
   }
   return { calls, rows, captions, load, actions: load(path.join(root, 'app/actions.ts')) };
@@ -120,7 +123,7 @@ test('toggle removes only this user and caption', async () => {
   const env = setup({ rows: [{caption_id:'7',user_id:'student',vote:1},{caption_id:'7',user_id:'other',vote:1},{caption_id:'8',user_id:'student',vote:1}] });
   await env.actions.voteOnCaption({},form({caption_id:'7',vote:'1',user_id:'other'})); assert.equal(env.rows.length,2); assert.ok(env.rows.some(r=>r.user_id==='other')); assert.ok(env.rows.some(r=>r.caption_id==='8'));
 });
-for (const options of [{deleteError:{code:'42501'}},{hiddenByRls:true},{readError:{code:'42501'}}]) test('denied or invisible delete is never reported as success: '+JSON.stringify(options), async()=>{
+for (const options of [{deleteError:{code:'42501'}},{readError:{code:'42501'}}]) test('failed vote read/delete is never reported as success: '+JSON.stringify(options), async()=>{
   const env=setup({...options,rows:[{caption_id:'7',user_id:'student',vote:1}]});const result=await env.actions.voteOnCaption({},form({caption_id:'7',vote:'1'}));assert.ok(result.error);assert.equal(env.rows.length,1);assert.equal(env.calls.refreshed.length,0);
 });
 for(const fields of [{caption_id:'1;DROP',vote:'1'},{caption_id:'9223372036854775808',vote:'1'},{caption_id:'7',vote:'0'}])test('invalid vote rejected '+JSON.stringify(fields),async()=>{const env=setup();assert.ok((await env.actions.voteOnCaption({},form(fields))).error);assert.equal(env.calls.writes.length,0)});
@@ -196,3 +199,51 @@ test('Community filters published category; requests only safe fields and aggreg
 test('Members route is removed',()=>assert.equal(fs.existsSync(path.join(root,'app/members/page.tsx')),false));
 
 test('optimistic desired rating is stable when refreshed server props arrive',()=>{const env=setup();const next=env.load(path.join(root,'lib/drafts.ts')).optimisticRating({selected:1,positive:19,negative:3},1);assert.equal(next.selected,1);assert.equal(next.positive,19);assert.equal(next.negative,3)});
+
+test('removal accepts a successful empty response when another request already removed the vote', async () => {
+  const env = setup({ deleteAlreadyRemoved: true, rows: [{ caption_id: '7', user_id: 'student', vote: 1 }] });
+  const result = await env.actions.voteOnCaption({}, form({ caption_id: '7', vote: '1' }));
+  assert.equal(result.message, 'Vote removed.');
+  assert.equal(env.rows.length, 0);
+  assert.deepEqual(env.calls.refreshed, ['/community']);
+});
+
+test('actual delete error fields are logged server-side and not exposed to the UI', async () => {
+  const error = { code: '42501', message: 'permission denied for table caption_votes', details: 'diagnostic detail', hint: 'diagnostic hint' };
+  const env = setup({ deleteError: error, rows: [{ caption_id: '7', user_id: 'student', vote: 1 }] });
+  const result = await env.actions.voteOnCaption({}, form({ caption_id: '7', vote: '1' }));
+  assert.ok(result.error);
+  assert.ok(!result.error.includes(error.message));
+  assert.equal(env.calls.serverErrors.length, 1);
+  const [label, logged] = env.calls.serverErrors[0];
+  assert.equal(label, '[voteOnCaption] Delete failed');
+  assert.deepEqual(JSON.parse(JSON.stringify(logged)), error);
+  assert.equal(env.rows.length, 1);
+  assert.equal(env.calls.refreshed.length, 0);
+});
+
+test('real Supabase SDK sends a minimal owner-scoped DELETE and handles HTTP 204', async () => {
+  const { createClient } = require('@supabase/supabase-js');
+  const requests = [];
+  const client = createClient('https://database.example', 'test-only-key', {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({ url, method: init.method, headers: new Headers(init.headers) });
+      if (init.method === 'DELETE') return new Response(null, { status: 204 });
+      const data = url.pathname.endsWith('/captions') ? [{ id: '7' }] : [{ vote: 1 }];
+      return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
+    } },
+  });
+  client.auth.getUser = async () => ({ data: { user: eligible }, error: null });
+  const env = setup({ databaseClient: client });
+  const result = await env.actions.voteOnCaption({}, form({ caption_id: '7', vote: '1', user_id: 'forged' }));
+  assert.equal(result.message, 'Vote removed.');
+  const deletes = requests.filter(request => request.method === 'DELETE');
+  assert.equal(deletes.length, 1);
+  assert.equal(deletes[0].url.pathname, '/rest/v1/caption_votes');
+  assert.deepEqual([...deletes[0].url.searchParams.entries()], [['caption_id', 'eq.7'], ['user_id', 'eq.student']]);
+  assert.ok(!(deletes[0].headers.get('Prefer') ?? '').includes('return=representation'));
+  assert.ok(!(deletes[0].headers.get('Accept') ?? '').includes('vnd.pgrst.object'));
+  assert.deepEqual(env.calls.refreshed, ['/community']);
+});

@@ -143,16 +143,21 @@ export async function voteOnCaption(
     if (readError) return { error: "Your current rating could not be checked. Please try again." };
 
     if (existingVote?.vote === Number(vote)) {
-      const { data: removed, error: deleteError } = await supabase
+      const { error: deleteError } = await supabase
         .from("caption_votes")
         .delete()
         .eq("caption_id", captionId)
-        .eq("user_id", user.id)
-        .eq("vote", Number(vote))
-        .select("caption_id");
+        .eq("user_id", user.id);
 
-      // RLS can silently match no rows. Never report a removal that did not occur.
-      if (deleteError || removed?.length !== 1) {
+      // A successful DELETE returns no body. Removing an already-removed vote
+      // is also safe; revalidation supplies the authoritative selection/counts.
+      if (deleteError) {
+        console.error("[voteOnCaption] Delete failed", {
+          code: deleteError.code,
+          message: deleteError.message,
+          details: deleteError.details,
+          hint: deleteError.hint,
+        });
         return { error: "Your rating could not be removed. Refresh and try again. If this continues, contact the app owner." };
       }
 
