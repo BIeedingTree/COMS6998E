@@ -1,105 +1,43 @@
-# Columbia Caption Generator
+# Say It Better
 
-Week 4 adds a small AI caption generator and persistent thumbs-up/down voting to the existing Next.js App Router application. It reuses the Week 3 Google OAuth login, Supabase clients, callback, logout, and profile pages.
+For texts you’ve rewritten six times already. A private AI writing assistant for Columbia and Barnard students, with an optional anonymous community library.
 
-## Setup
+## Current workflow
 
-1. Run `npm install`.
-2. Keep the existing values in `.env.local`. Use `.env.example` as a reference; do not overwrite your current file.
-3. Add `GEMINI_API_KEY=your-key` to `.env.local`. Get a key from [Google AI Studio](https://aistudio.google.com/apikey). Never use a `NEXT_PUBLIC_` prefix for this key.
-4. Complete the SQL setup below.
-5. Run `npm run dev`, sign in with Google, and open `/`.
+- **My Drafts (`/`)** is the default workspace. Generate an email, text/message, or other draft with Gemini; it saves privately and remains here after publishing. Copy emails with their subject and body. No voting in this workspace.
+- **Community Drafts (`/community`)** contains only owner-published drafts. Filter Academic, Career, Clubs, Housing, Social, or Other. Authors and original prompts are never displayed.
+- **Post to Community** asks for confirmation. **Remove from Community** makes the same row private again; the draft and historical votes remain saved.
+- Community ratings use `1` (Send it) and `-1` (Needs work). Click the selected rating again to remove it. Selection and aggregate counts update optimistically and roll back on error.
+- Nineteen campus-oriented quick starts fill in the situation, category, message type, and recipient. Recipient and tone remain prompt-only preferences.
+- Google OAuth, confirmed Columbia/Barnard email checks, Profile, avatar uploads, and logout are preserved. The old Members route is removed.
 
-Required variables locally and in Vercel:
+## Local setup
 
-```dotenv
-NEXT_PUBLIC_SUPABASE_URL=your-existing-project-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-existing-publishable-or-anon-key
-GEMINI_API_KEY=your-server-only-key
-```
+Install dependencies with `npm install`, configure `.env.local` from `.env.example`, then run `npm run dev`. Keep `GEMINI_API_KEY` server-only. This iteration retains the existing Gemini model and credentials.
 
-Generation runs in `app/actions.ts` through the official `@google/genai` SDK using `gemini-3.5-flash-lite`. Model availability/quota must be verified with your Gemini project. No Gemini key is currently configured in this checkout. The exact `contents` string sent to Gemini is saved as `captions.prompt`; the caption and authenticated user ID are inserted in the same row. `created_at` is supplied by the database. Failed generation or persistence returns a readable error and never reports success.
+**Database prerequisite:** review [supabase/week5-drafts.sql](supabase/week5-drafts.sql) before manually applying it to the existing Week 4 schema. It has NOT been executed. The new code requires its columns and RPCs; until it is applied, draft loading/generation will report errors. There is deliberately no fallback to the old shared feed. Do not rerun Week 4 policies after Week 5: they would restore the older broad read access.
 
-## Supabase SQL: run manually
+The migration adds five caption fields, private-by-default RLS, owner-only publication permissions, published-only vote rules including own-vote DELETE, and three narrowly scoped functions. It changes only captions/votes and their supporting functions/indexes/sequence privileges. It preserves profiles, storage policies, triggers, users and all data. Full explanation: [Week 5 audit](docs/week5-audit.md).
 
-No remote database changes have been applied. There is no existing Supabase CLI migration configuration in this repository.
+**Do not run `supabase/remove-legacy-drafts.sql`.** That older cleanup proposal is superseded; this iteration intentionally retains legacy records. Ownerless private rows stay out of both feeds.
 
-1. Open **your app's Supabase project > SQL Editor**.
-2. Paste and run **`supabase/inspect.sql`**. This only reads schema metadata. Review columns/defaults, existing policies, signup triggers, buckets, and any extra schemas, views, or security-definer functions.
-3. Paste and run the **entire `supabase/week4.sql` file**. It runs in a transaction and is rerunnable. It never drops tables, deletes rows, or removes existing policies.
-4. Re-run `inspect.sql` to verify RLS and policies. All public application tables should have RLS enabled.
+## Verification
 
-Your live inspection confirmed `captions.id` is a bigint identity, with `caption_text` and `created_at`; `profiles` contains UUID `id`, names, avatar URL, and `created_at`. The only existing public policy is `"Allow public read access to captions"`. This script targets that confirmed schema, with `caption_votes` added for Week 4.
-
-### What the script changes
-
-- **Captions:** adds nullable `prompt` and `user_id` referencing `auth.users`. Existing rows and timestamp defaults are preserved. Alters the existing named read policy to authenticated-only, revokes anonymous access, and grants authenticated users SELECT on feed columns and INSERT on caption/prompt/user fields. Insert RLS requires `user_id = auth.uid()`. No client update/delete permissions are granted.
-- **Votes:** creates a bigint identity primary key, bigint caption foreign key, user foreign key, a `1`/`-1` check, timestamp, and unique `(caption_id, user_id)` constraint. Users can select, insert, and update only their own votes. The UPDATE grants match all fields written by the existing upsert. No delete permission is granted.
-- **Profiles:** enables RLS, allows users to select their own ID/name/avatar fields, and update only their own names/avatar URL. The existing signup trigger remains responsible for creating profile rows and is untouched.
-- **Storage and other tables:** no changes. The existing profile UI uploads avatars, but no verified database-policy problem justifies changing storage policies. No generic rules are applied to other or future public tables.
-
-The script uses ordinary RLS policies with existence checks for reruns. It is intended for the confirmed live schema, where the earlier, broader draft has not been executed. It does not remove policies from an already-applied earlier draft.
-
-## Implementation
-
-- `app/page.tsx`: authenticated caption feed, generator, current user's saved votes, and compact selected-vote styling.
-- `app/actions.ts`: validates sessions and input, calls Gemini server-side, inserts captions, and upserts votes. Browser-supplied user IDs are ignored. Successful writes refresh `/`.
-- `components/CaptionGenerator.tsx`: topic form with pending and error/success states.
-- `components/CaptionVotes.tsx`: accessible thumbs-up/down buttons, disabled while saving.
-- `supabase/inspect.sql`: read-only live database inventory.
-- `supabase/week4.sql`: additive schema setup, RLS, and minimum permissions.
-- `.env.example` and `.gitignore`: document configuration while keeping real environment files ignored.
-- `package.json` and `package-lock.json`: official Gemini SDK dependency.
-
-## Local checks
-
-```bash
-npm run lint
+```sh
+node --test tests/week5.test.cjs
 npx tsc --noEmit
+npm run lint
 npm run build
 ```
 
-Validation performed during implementation:
+Automated action/page tests mock Supabase and Gemini. They do not establish live RLS behavior. See the audit for the two-account database/privacy test matrix, actual checks performed, and remaining submission work.
 
-- Lint passed with one pre-existing `next/image` warning in `app/profile/page.tsx`.
-- TypeScript passed.
-- `npm run build` could not complete in this execution environment: first Google Fonts network access was blocked, then Turbopack's internal worker port was blocked. With network access, **`npm run build -- --webpack` passed**.
-- The production server returned `/login` redirects for logged-out requests to `/` and `/members`; `/login` returned 200 and the Google login button.
-- The revised, simplified SQL has not been executed, as requested. Earlier PostgreSQL test results applied to the previous draft and do not validate this revision.
-- 19 temporary server-action checks passed with mocked Supabase/Gemini: authentication, validation, exact prompt persistence, ignoring forged user IDs, API/database failures, and vote conflict handling. These do not verify live Gemini or OAuth.
-- `npm audit` reports six findings in existing Next.js/ESLint dependencies (five high, one critical). The critical advisory concerns `next/og` ImageResponse, which this app does not use. Framework upgrades were left outside this Week 4 implementation; do not run `npm audit fix --force`, which proposes an ESLint configuration downgrade.
+Before submission, manually verify real Columbia and Barnard OAuth accounts, Profile/avatar behavior, Gemini output, all private/published transitions and persistent ratings. Google OAuth audience/organization restrictions are external to the repository. No external provider settings have been changed.
 
-## Manual verification
+Deploy only when ready, ensure Vercel Deployment Protection is OFF, test the deployment in Incognito, and submit the commit-specific deployment URL. No push or deployment was performed for this iteration.
 
-Use SQL Editor as the database owner to inspect saved rows. For RLS checks, use the anon key or an ordinary signed-in user's session; SQL Editor's owner role bypasses RLS.
+## Production domain and public OAuth pages
 
-- [ ] Incognito: `/` and `/members` redirect to login. Direct unauthenticated generation/vote actions reject requests.
-- [ ] Google login, `/auth/callback`, profile editing/avatar upload, and logout still work, including a first-time user's profile creation.
-- [ ] Generate a caption about `Columbia dining halls`; confirm loading state, new feed card, and saved `caption_text`, exact `prompt`, correct `user_id`, and `created_at` in Supabase.
-- [ ] Empty topics are rejected. API/quota and database errors show readable messages.
-- [ ] Upvote: one row with `vote = 1`. Reload: thumbs-up stays selected.
-- [ ] Downvote the same caption: the row ID stays the same, vote becomes `-1`, and `(caption_id, user_id)` still has exactly one row. Reload again.
-- [ ] A second user sees their own vote state and cannot read/change the first user's votes or profile.
-- [ ] Direct unauthenticated database inserts are denied. A signed-in user cannot forge another UUID on captions/votes, submit a vote other than `1`/`-1`, edit privileged profile fields, or edit another user's profile.
-- [ ] Re-run `inspect.sql` and confirm all application tables have RLS and appropriate access. Review any additional schemas/views/RPCs.
+The canonical website is **https://coms-6998-e.vercel.app**. `/about` and `/privacy` are public and linked from login; application data still requires authentication. Public metadata resolves against this stable origin, while OAuth redirects intentionally retain the current browser/request origin.
 
-## Deployment
-
-After SQL setup, adding the Gemini key, and local testing, commit and push the changes (no commit or push has been performed for you):
-
-```bash
-git add .gitignore .env.example README.md app/page.tsx app/actions.ts components/CaptionGenerator.tsx components/CaptionVotes.tsx package.json package-lock.json supabase/inspect.sql supabase/week4.sql
-git commit -m "Add Week 4 AI caption generation and voting"
-git push
-```
-
-In your existing Vercel project:
-
-1. Add server-only `GEMINI_API_KEY` to the deployment environments you use; retain existing Supabase variables.
-2. Deploy the pushed commit (or redeploy after changing environment variables).
-3. Turn **Deployment Protection off**, as required by the assignment.
-4. Confirm the production `/auth/callback` URL is allowed by your existing Supabase/Google OAuth configuration.
-5. Test production in Incognito: login, generation, voting, persistence after refresh, and logout.
-6. Submit the **commit-specific Vercel deployment URL** and complete the week's Humor Study.
-
-The live SQL migration, Gemini request, Google OAuth round trip, PM feedback session, and Vercel deployment still require your project credentials or manual participation. Use your PM's actual feedback for iteration; no feedback is fabricated here.
+See [the production OAuth checklist](docs/oauth-production-checklist.md) for the exact Google Auth Platform and Supabase dashboard values, including the separate Supabase provider callback and application callback. No external configuration, database change, push or deployment is performed by these code changes.

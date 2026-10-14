@@ -1,3 +1,4 @@
+import { isEligibleUser } from "@/lib/auth/eligibility";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
@@ -12,8 +13,15 @@ export async function GET(request: Request) {
 
     if (!error) {
       const {
-        data: { user },
+        data: { user }, error: userError,
       } = await supabase.auth.getUser();
+
+      if (userError || !user) return NextResponse.redirect(`${origin}/login?reason=auth`);
+
+      if (!isEligibleUser(user)) {
+        await supabase.auth.signOut({ scope: "local" });
+        return NextResponse.redirect(`${origin}/login?reason=eligibility`);
+      }
 
       if (user) {
         const { data: profile } = await supabase
@@ -25,9 +33,10 @@ export async function GET(request: Request) {
         if (!profile?.first_name || !profile?.last_name) {
           return NextResponse.redirect(`${origin}/profile`);
         }
+        return NextResponse.redirect(`${origin}/`);
       }
     }
   }
 
-  return NextResponse.redirect(`${origin}/`);
+  return NextResponse.redirect(`${origin}/login?reason=auth`);
 }

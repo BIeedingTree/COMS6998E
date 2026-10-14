@@ -1,13 +1,41 @@
 "use client";
 
-import { useActionState } from "react";
-import { voteOnCaption } from "@/app/actions";
+import { useActionState, useOptimistic } from "react";
+import { voteOnCaption, type ActionState } from "@/app/actions";
+import { optimisticRating, type RatingCounts } from "@/lib/drafts";
+import Icon from "@/components/Icon";
 
-export default function CaptionVotes({ captionId, selectedVote }: { captionId: string; selectedVote: number | null }) {
-  const [state, action, pending] = useActionState(voteOnCaption, {});
-  return <form action={action} className="post-reactions">
-    <input type="hidden" name="caption_id" value={captionId} />
-    <div className="reaction-buttons">{([1, -1] as const).map(vote => <button key={vote} type="submit" name="vote" value={vote} disabled={pending} aria-label={vote === 1 ? "Funny: upvote post" : "Miss: downvote post"} aria-pressed={selectedVote === vote} className={`reaction ${selectedVote === vote ? "reaction-selected" : ""}`}><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={vote === 1 ? "M10 16V4m-5 5 5-5 5 5" : "M10 4v12m-5-5 5 5 5-5"} /></svg>{vote === 1 ? "Funny" : "Miss"}{selectedVote === vote && <span className="reaction-check" aria-hidden="true">✓</span>}</button>)}</div>
-    <span aria-live="polite" className={`reaction-status ${state.error ? "status-error" : ""}`}>{pending ? "Saving…" : state.error ?? state.message}</span>
-  </form>;
+export default function CaptionVotes({ captionId, selectedVote, counts }: { captionId: string; selectedVote: number | null; counts: RatingCounts }) {
+  const [rating, applyRating] = useOptimistic({ ...counts, selected: selectedVote }, optimisticRating);
+  const [state, action, pending] = useActionState(async (previous: ActionState, formData: FormData) => {
+    const vote = Number(formData.get("vote"));
+    applyRating(rating.selected === vote ? null : vote);
+    try {
+      return await voteOnCaption(previous, formData);
+    } catch {
+      return { error: "Your rating could not be saved. Please try again." };
+    }
+  }, {});
+
+  return (
+    <form action={action} className="draft-ratings" aria-busy={pending}>
+      <input type="hidden" name="caption_id" value={captionId} />
+      <div className="reaction-buttons">
+        {([1, -1] as const).map(vote => (
+          <button key={vote} type="submit" name="vote" value={vote} disabled={pending}
+            aria-label={vote === 1 ? "Rate draft: Send it" : "Rate draft: Needs work"}
+            title={rating.selected === vote ? "Click again to remove your rating" : vote === 1 ? "Rate as ready to send" : "Rate as needing a rewrite"}
+            aria-pressed={rating.selected === vote}
+            className={`reaction ${rating.selected === vote ? "reaction-selected" : ""}`}>
+            <Icon name={vote === 1 ? "check" : "rewrite"} />
+            {vote === 1 ? "Send it" : "Needs work"}
+            <span className="rating-count" aria-label={`${vote === 1 ? rating.positive : rating.negative} ratings`}>{vote === 1 ? rating.positive : rating.negative}</span>
+          </button>
+        ))}
+      </div>
+      <span aria-live="polite" className={`reaction-status ${state.error ? "status-error" : ""}`}>
+        {pending ? "Saving…" : state.error ?? state.message}
+      </span>
+    </form>
+  );
 }

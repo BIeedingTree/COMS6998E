@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Campus Feed — AI-generated campus discourse",
-  description: "Your campus. A different kind of timeline. Create AI-generated campus posts and decide which ones land.",
+  metadataBase: new URL(SITE_URL),
+  applicationName: "Say It Better",
+  title: "Say It Better — Find the words",
+  description: "For texts you’ve rewritten six times already. Describe the situation and get a thoughtful message you can copy and send.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
