@@ -1,5 +1,7 @@
 # Week 5 iteration audit — private drafts and optional community
 
+> Historical implementation record. For the current October 14 live checks, successful vote-removal retest, 88-test result, build limitations and exact submission link, see [Week 5 submission readiness](week5-submission-checklist.md). Statements below about pending deployment/migration describe the earlier implementation stage; they are not instructions to reapply SQL. The owner has since verified live vote DELETE grants/RLS, and this audit must not trigger database changes.
+
 Status: implemented locally; the new SQL is review-only and has not been executed. No database connection was used to change live state, no legacy rows were deleted, and no push or deployment was performed. The latest private-workspace specification supersedes earlier shared-feed/Members/cleanup instructions.
 
 ## Product behavior

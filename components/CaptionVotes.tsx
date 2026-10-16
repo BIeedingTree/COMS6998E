@@ -27,14 +27,14 @@ export default function CaptionVotes({ captionId, selectedVote, counts }: { capt
             title={rating.selected === vote ? "Click again to remove your rating" : vote === 1 ? "Rate as ready to send" : "Rate as needing a rewrite"}
             aria-pressed={rating.selected === vote}
             className={`reaction ${rating.selected === vote ? "reaction-selected" : ""}`}>
-            <Icon name={vote === 1 ? "check" : "rewrite"} />
+            <Icon name={vote === 1 ? "check" : "rewrite"} width={16} height={16} />
             {vote === 1 ? "Send it" : "Needs work"}
             <span className="rating-count" aria-label={`${vote === 1 ? rating.positive : rating.negative} ratings`}>{vote === 1 ? rating.positive : rating.negative}</span>
           </button>
         ))}
       </div>
-      <span aria-live="polite" className={`reaction-status ${state.error ? "status-error" : ""}`}>
-        {pending ? "Saving…" : state.error ?? state.message}
+      <span aria-live="polite" className={state.error ? "reaction-status status-error" : "sr-only"}>
+        {pending ? "Saving…" : state.error ?? ""}
       </span>
     </form>
   );

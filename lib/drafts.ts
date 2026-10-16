@@ -26,6 +26,15 @@ export type Draft = {
 // Intentionally excludes both the original prompt and the owner's identity.
 export const COMMUNITY_FIELDS = "id,caption_text,created_at,subject,message_type,category,is_public,published_at";
 export type RatingCounts = { positive: number; negative: number };
+// Display the user's situation, not the surrounding model instructions. Older
+// unrecognized prompt formats are left unavailable rather than guessed.
+export function originalRequest(prompt: string | null | undefined): string | null {
+  if (!prompt?.startsWith("You are an expert at helping people phrase difficult or awkward messages clearly and naturally.")) return null;
+  const start = prompt.indexOf("\nSituation:\n");
+  const end = prompt.lastIndexOf("\n\nRecipient:\n");
+  if (start < 0 || end <= start) return null;
+  return prompt.slice(start + "\nSituation:\n".length, end).trim() || null;
+}
 export function isMessageType(value: unknown): value is MessageType {
   return MESSAGE_TYPES.some(option => option.value === value);
 }

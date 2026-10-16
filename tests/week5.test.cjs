@@ -22,6 +22,13 @@ function setup(options = {}) {
     async rpc(name, args = {}) {
       calls.rpcs.push({ name, args });
       if (options.rpcError) return { data: null, error: options.rpcError };
+      if (name === 'get_my_draft_prompts') return { data: captions.filter(c => c.user_id === user?.id).map(c => ({ id: c.id, prompt: c.prompt ?? null })), error: options.promptError ?? null };
+      if (name === 'get_community_requests') {
+        const { originalRequest } = load(path.join(root, 'lib/drafts.ts'));
+        return { data: captions.filter(c => c.is_public && c.user_id && args.p_caption_ids.includes(String(c.id)))
+          .map(c => ({ id: c.id, original_request: originalRequest(c.prompt) }))
+          .filter(c => c.original_request), error: options.communityRequestError ?? null };
+      }
       if (name === 'get_my_drafts') return { data: captions.filter(c => c.user_id === user?.id && (!args.p_draft_id || String(c.id) === args.p_draft_id)), error: null };
       assert.equal(name, 'get_community_rating_counts');
       return { data: captions.filter(c => c.is_public && args.p_caption_ids.includes(String(c.id))).map(c => ({ caption_id: c.id, positive_count: rows.filter(v => v.caption_id === c.id && v.vote === 1).length, negative_count: rows.filter(v => v.caption_id === c.id && v.vote === -1).length })), error: null };
@@ -52,6 +59,12 @@ function setup(options = {}) {
         delete: () => { operation = 'delete'; return query; },
         then(resolve) {
           if (operation === 'read') return Promise.resolve({ data: source.filter(matches).map(projected), error: options.readError ?? null }).then(resolve);
+          if (operation === 'update') {
+            calls.writes.push({ operation, patch, filters });
+            if (options.writeError) return Promise.resolve({ data: null, error: options.writeError }).then(resolve);
+            if (!options.hiddenByRls) for (const row of source.filter(matches)) Object.assign(row, patch);
+            return Promise.resolve({ data: null, error: null }).then(resolve);
+          }
           assert.equal(operation, 'delete');
           calls.writes.push({ operation, filters });
           if (options.deleteError) return Promise.resolve({ data: null, error: options.deleteError }).then(resolve);
@@ -142,16 +155,36 @@ for (const isPublic of [true, false]) test('owner can set publication to ' + isP
   assert.equal(env.captions[0].is_public, isPublic); assert.equal(env.rows.length, 1);
   assert.equal(!!env.captions[0].published_at, isPublic);
   assert.deepEqual(Object.keys(env.calls.writes[0].patch).sort(), ['is_public','published_at']);
+  assert.deepEqual(env.calls.writes[0].filters, [['id', '7']]);
   assert.deepEqual(env.calls.refreshed, ['/', '/community']);
+});
+test('publish and unpublish persist in My Drafts and Community reads', async () => {
+  const env = setup({ captions: [{ id: '7', user_id: 'student', caption_text: 'Test draft', created_at: '2026-10-15', subject: null, message_type: 'message', category: 'academic', is_public: false, published_at: null }] });
+  const home = () => env.load(path.join(root, 'app/page.tsx')).default({ searchParams: Promise.resolve({}) });
+  const community = () => env.load(path.join(root, 'app/community/page.tsx')).default({ searchParams: Promise.resolve({}) });
+  const cards = tree => findElements(tree, node => node.type?.name === 'MessageCard');
+
+  assert.equal(cards(await community()).length, 0);
+  assert.ok((await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'true' }))).message);
+  assert.equal(cards(await home())[0].props.message.is_public, true);
+  assert.equal(cards(await community())[0].props.message.id, '7');
+
+  assert.ok((await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'false' }))).message);
+  assert.equal(cards(await home())[0].props.message.is_public, false);
+  assert.equal(cards(await community()).length, 0);
+  assert.equal(env.captions[0].published_at, null);
 });
 for (const options of [{captions:[{id:'7',user_id:'someone-else',is_public:true}]},{captions:[]},{rpcError:{code:'42501'}}]) test('non-owner/missing/denied ownership cannot publish '+JSON.stringify(options),async()=>{
   const env=setup(options);const result=await env.actions.setDraftPublication({},form({caption_id:'7',is_public:'true'}));assert.ok(result.error);assert.equal(env.calls.writes.length,0);
 });
-for (const options of [{hiddenByRls:true},{writeError:{code:'42501'}}]) test('publication failure does not report success '+JSON.stringify(options),async()=>{
-  const env=setup(options);assert.ok((await env.actions.setDraftPublication({},form({caption_id:'7',is_public:'false'}))).error);assert.equal(env.calls.refreshed.length,0);
+for (const options of [{writeError:{code:'42501',message:'permission denied for column community_request',details:'test-only',hint:'test-only'}}]) test('publication failure does not report success '+JSON.stringify(options),async()=>{
+  const env=setup(options);const result=await env.actions.setDraftPublication({},form({caption_id:'7',is_public:'false'}));assert.ok(result.error);assert.ok(!result.error.includes(options.writeError.message));assert.equal(env.calls.refreshed.length,0);
+  assert.equal(env.calls.serverErrors[0][0], '[setCaptionPublic] Update failed');
+  assert.equal(env.calls.serverErrors[0][1].code, '42501');
+  assert.equal(env.calls.serverErrors[0][1].requestedPublicState, false);
 });
-for (const fields of [{caption_id:'7',is_public:'yes'},{caption_id:'0',is_public:'true'},{caption_id:'-7',is_public:'false'}]) test('publication input validation '+JSON.stringify(fields),async()=>{
-  const env=setup();assert.ok((await env.actions.setDraftPublication({},form(fields))).error);assert.equal(env.calls.rpcs.length,0);
+for (const fields of [{is_public:'true'},{caption_id:'7',is_public:'yes'},{caption_id:'0',is_public:'true'},{caption_id:'-7',is_public:'false'}]) test('publication input validation '+JSON.stringify(fields),async()=>{
+  const env=setup();assert.ok((await env.actions.setDraftPublication({},form(fields))).error);assert.equal(env.calls.rpcs.length,0);assert.equal(env.calls.serverErrors[0][0],'[setCaptionPublic] Invalid publish request');
 });
 for (const captions of [[],[{id:'7',user_id:'student',is_public:false}],[{id:'7',user_id:'other',is_public:false}]]) test('private/missing draft cannot be rated '+JSON.stringify(captions),async()=>{
   const env=setup({captions});assert.ok((await env.actions.voteOnCaption({},form({caption_id:'7',vote:'1'}))).error);assert.equal(env.calls.writes.length,0);assert.ok(!env.calls.tables.includes('caption_votes'));
@@ -187,7 +220,7 @@ function findElements(node, predicate) {
 }
 test('My Drafts uses only the owner lookup; cards have sharing but no voting props',async()=>{
  const env=setup({captions:[{id:'7',user_id:'student',is_public:false},{id:'8',user_id:'student',is_public:true},{id:'9',user_id:'other',is_public:true}]});
- const tree=await env.load(path.join(root,'app/page.tsx')).default();const cards=findElements(tree,n=>n.type?.name==='MessageCard');
+ const tree=await env.load(path.join(root,'app/page.tsx')).default({searchParams:Promise.resolve({})});const cards=findElements(tree,n=>n.type?.name==='MessageCard');
  assert.deepEqual(cards.map(n=>n.props.message.id),['7','8']);assert.ok(cards.every(n=>n.props.mode==='private'&&!Object.hasOwn(n.props,'selectedVote')));assert.deepEqual(env.calls.tables,[]);assert.equal(env.calls.rpcs[0].name,'get_my_drafts');
 });
 test('Community filters published category; requests only safe fields and aggregate/own votes',async()=>{
@@ -246,4 +279,189 @@ test('real Supabase SDK sends a minimal owner-scoped DELETE and handles HTTP 204
   assert.ok(!(deletes[0].headers.get('Prefer') ?? '').includes('return=representation'));
   assert.ok(!(deletes[0].headers.get('Accept') ?? '').includes('vnd.pgrst.object'));
   assert.deepEqual(env.calls.refreshed, ['/community']);
+});
+
+test('real Supabase SDK publishes and unpublishes with only permitted fields and accepts HTTP 204', async () => {
+  const { createClient } = require('@supabase/supabase-js');
+  const requests = [];
+  const client = createClient('https://database.example', 'test-only-key', {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({ url, method: init.method, headers: new Headers(init.headers), body: init.body });
+      if (url.pathname.endsWith('/rpc/get_my_drafts')) return new Response(JSON.stringify([{ id: '7' }]), { headers: { 'Content-Type': 'application/json' } });
+      if (init.method === 'PATCH') return new Response(null, { status: 204 });
+      throw Error('Unexpected request: ' + url.pathname);
+    } },
+  });
+  client.auth.getUser = async () => ({ data: { user: eligible }, error: null });
+  const env = setup({ databaseClient: client });
+  const published = await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'true', user_id: 'forged', community_request: 'FORGED' }));
+  assert.equal(published.message, 'Posted anonymously to Community.');
+  const unpublished = await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'false', user_id: 'forged' }));
+  assert.equal(unpublished.message, 'Removed from Community. Your draft is still saved here.');
+  const patches = requests.filter(request => request.method === 'PATCH');
+  assert.equal(patches.length, 2);
+  for (const patch of patches) {
+    assert.equal(patch.url.pathname, '/rest/v1/captions');
+    assert.deepEqual([...patch.url.searchParams.entries()], [['id', 'eq.7']]);
+    assert.deepEqual(Object.keys(JSON.parse(patch.body)).sort(), ['is_public', 'published_at']);
+    assert.ok(!(patch.headers.get('Prefer') ?? '').includes('return=representation'));
+  }
+  assert.equal(JSON.parse(patches[0].body).is_public, true);
+  assert.ok(JSON.parse(patches[0].body).published_at);
+  assert.equal(JSON.parse(patches[1].body).is_public, false);
+  assert.equal(JSON.parse(patches[1].body).published_at, null);
+  assert.deepEqual(env.calls.refreshed, ['/', '/community', '/', '/community']);
+});
+
+
+test('private request lookup is owner-scoped and does not prevent drafts loading on failure', async () => {
+  for (const promptError of [null, { code: 'PGRST202' }]) {
+    const env = setup({ promptError, captions: [
+      { id: '7', user_id: 'student', prompt: 'You are an expert at helping people phrase difficult or awkward messages clearly and naturally.\n\nSituation:\nAsk for an extension.\n\nRecipient:\nProfessor\n\nDesired tone:\nPolite' },
+      { id: '8', user_id: 'other', prompt: 'Other user secret' },
+    ] });
+    const tree = await env.load(path.join(root, 'app/page.tsx')).default({searchParams:Promise.resolve({})});
+    const nodes = [];
+    function visit(node) { if (!node || typeof node !== 'object') return; if (Array.isArray(node)) return node.forEach(visit); nodes.push(node); visit(node.props?.children); }
+    visit(tree);
+    const cards = nodes.filter(node => node.props?.mode === 'private');
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].props.originalRequest, promptError ? null : 'Ask for an extension.');
+    assert.equal(env.calls.rpcs.filter(call => call.name === 'get_my_draft_prompts').length, 1);
+    assert.deepEqual(env.calls.tables, []);
+  }
+});
+
+test('original request parsing preserves multiline user text without displaying model instructions', () => {
+  const { originalRequest } = setup().load(path.join(root, 'lib/drafts.ts'));
+  const start = 'You are an expert at helping people phrase difficult or awkward messages clearly and naturally.';
+  assert.equal(originalRequest(start + '\nSituation:\nLine one\n\nRecipient:\npart of my input\nLine two\n\nRecipient:\nFriend\n\nDesired tone:\nWarm'), 'Line one\n\nRecipient:\npart of my input\nLine two');
+  for (const prompt of [undefined, null, '', 'Old humor instructions', start]) assert.equal(originalRequest(prompt), null);
+});
+
+test('Community card renders the shared original request in its disclosure', () => {
+  const env = setup();
+  const Card = env.load(path.join(root, 'components/MessageCard.tsx')).default;
+  const tree = Card({ mode: 'community', originalRequest: 'SHARED REQUEST', message: { id: '7', caption_text: 'Public draft', category: 'academic', message_type: 'message', published_at: null }, counts: null, votingAvailable: false });
+  assert.ok(JSON.stringify(tree).includes('SHARED REQUEST'));
+  assert.ok(JSON.stringify(tree).includes('Original request'));
+});
+
+test('avatar selection rejects unsupported, empty and oversized files', () => {
+  const { avatarValidationError } = setup().load(path.join(root, 'lib/profile.ts'));
+  for (const type of ['image/jpeg', 'image/png', 'image/webp', 'image/gif']) assert.equal(avatarValidationError({type, size: 1024}), null);
+  for (const file of [{type:'image/svg+xml',size:100}, {type:'text/plain',size:100}, {type:'image/png',size:0}, {type:'image/png',size:5*1024*1024+1}]) assert.ok(avatarValidationError(file));
+});
+
+const savedRequestPrompt = 'You are an expert at helping people phrase difficult or awkward messages clearly and naturally.\nSituation:\nAsk for two more days.\n\nRecipient:\nProfessor\n\nDesired tone:\nPolite';
+
+test('publishing changes only visibility and timestamp, ignoring forged request and user fields', async () => {
+  const env = setup({ captions: [{ id: '7', user_id: 'student', is_public: false, prompt: savedRequestPrompt, caption_text: 'Saved draft' }, { id: '8', user_id: 'other', prompt: 'OTHER USER SECRET' }] });
+  const result = await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'true', share_original_request: 'true', community_request: 'FORGED', user_id: 'other' }));
+  assert.ok(result.message);
+  assert.equal(env.captions[0].community_request, undefined);
+  assert.equal(env.captions[0].prompt, savedRequestPrompt);
+  assert.equal(env.captions[0].caption_text, 'Saved draft');
+  assert.equal(env.captions[0].user_id, 'student');
+  assert.equal(env.captions[1].community_request, undefined);
+  assert.ok(!env.calls.rpcs.some(call => call.name === 'get_my_draft_prompts'));
+});
+
+test('publishing no longer depends on original-request lookup', async () => {
+  const env = setup({ captions: [{ id: '7', user_id: 'student', is_public: false, prompt: savedRequestPrompt }] });
+  assert.ok((await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'true' }))).message);
+  assert.ok(!env.calls.rpcs.some(c => c.name === 'get_my_draft_prompts'));
+});
+
+test('request lookup failure does not block publication', async () => {
+  const env = setup({ promptError: { code: 'PGRST202' }, captions: [{ id: '7', user_id: 'student', is_public: false }] });
+  assert.ok((await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'true', share_original_request: 'true' }))).message);
+  assert.equal(env.calls.writes.length, 1);
+  assert.ok(!env.calls.rpcs.some(c => c.name === 'get_my_draft_prompts'));
+});
+
+test('unpublishing changes only visibility and timestamp', async () => {
+  const env = setup({ promptError: { code: 'PGRST202' }, captions: [{ id: '7', user_id: 'student', is_public: true, community_request: 'Ask for two more days.', prompt: savedRequestPrompt }] });
+  assert.ok((await env.actions.setDraftPublication({}, form({ caption_id: '7', is_public: 'false' }))).message);
+  assert.equal(env.captions[0].community_request, 'Ask for two more days.');
+  assert.equal(env.captions[0].prompt, savedRequestPrompt);
+  assert.ok(!env.calls.rpcs.some(c => c.name === 'get_my_draft_prompts'));
+});
+
+for (const communityRequestError of [null, { code: 'PGRST202' }]) test('Community receives only shared requests and survives lookup failure ' + Boolean(communityRequestError), async () => {
+  const env = setup({ user: { ...eligible, id: 'barnard-reader', email: 'reader@barnard.edu' }, communityRequestError, captions: [
+    { id: '7', user_id: 'student', is_public: true, category: 'academic', prompt: savedRequestPrompt },
+    { id: '8', user_id: 'student', is_public: false, category: 'academic', prompt: savedRequestPrompt.replace('Ask for two more days.', 'PRIVATE SITUATION') },
+    { id: '9', user_id: 'student', is_public: true, category: 'academic', prompt: 'OLD PRIVATE PROMPT' },
+  ] });
+  const tree = await env.load(path.join(root, 'app/community/page.tsx')).default({ searchParams: Promise.resolve({ category: 'academic' }) });
+  const cards = findElements(tree, node => node.type?.name === 'MessageCard');
+  assert.equal(cards.length, 2);
+  assert.equal(cards[0].props.originalRequest, communityRequestError ? null : 'Ask for two more days.');
+  assert.equal(cards[1].props.originalRequest, null);
+  assert.equal(cards[0].props.votingAvailable, true);
+  assert.ok(!JSON.stringify(cards.map(card => card.props)).includes('PRIVATE SITUATION'));
+  assert.ok(!JSON.stringify(cards.map(card => card.props)).includes('OLD PRIVATE PROMPT'));
+  assert.deepEqual(Array.from(env.calls.rpcs.find(c => c.name === 'get_community_requests').args.p_caption_ids), ['7', '9']);
+  assert.equal(env.calls.serverErrors.length, communityRequestError ? 1 : 0);
+  if (communityRequestError) {
+    assert.equal(env.calls.serverErrors[0][0], '[Community] Original-request lookup failed');
+    assert.equal(env.calls.serverErrors[0][1].code, communityRequestError.code);
+  }
+});
+
+test('Community request RPC is limited to eligible readers and published prompts', () => {
+  const sql = fs.readFileSync(path.join(root, 'supabase/week5-community-requests.sql'), 'utf8');
+  assert.match(sql, /security definer/i);
+  assert.match(sql, /week5_is_eligible_student\(\)/);
+  assert.match(sql, /and c\.is_public/);
+  assert.match(sql, /and c\.id = any\(p_caption_ids\)/);
+  assert.match(sql, /grant execute on function public\.get_community_requests\(bigint\[\]\) to authenticated/);
+  assert.doesNotMatch(sql, /grant select\s*\([^)]*prompt/i);
+  assert.doesNotMatch(sql, /community_request\b/);
+});
+
+test('My Drafts category links filter only owner drafts and preserve the active category', async () => {
+  const env = setup({ captions: [
+    { id: '7', user_id: 'student', category: 'academic', is_public: false },
+    { id: '8', user_id: 'student', category: 'social', is_public: false },
+    { id: '9', user_id: 'other', category: 'academic', is_public: true },
+  ] });
+  const tree = await env.load(path.join(root, 'app/page.tsx')).default({ searchParams: Promise.resolve({ category: 'academic' }) });
+  const cards = findElements(tree, node => node.type?.name === 'MessageCard');
+  assert.deepEqual(cards.map(card => card.props.message.id), ['7']);
+  assert.equal(cards[0].props.mode, 'private');
+  const filters = findElements(tree, node => node.props?.['aria-label'] === 'Filter My Drafts by category')[0];
+  const academic = findElements(filters, node => node.props?.href === '/?category=academic')[0];
+  assert.equal(academic.props['aria-current'], 'page');
+  assert.equal(findElements(tree, node => node.type?.name === 'MessageComposer')[0].props.filtered, true);
+  assert.ok(env.calls.rpcs.some(call => call.name === 'get_my_drafts'));
+  assert.ok(!env.calls.rpcs.some(call => call.name === 'get_community_rating_counts'));
+});
+
+test('invalid My Drafts category falls back to all owner drafts', async () => {
+  const env = setup({ captions: [
+    { id: '7', user_id: 'student', category: 'academic', is_public: false },
+    { id: '8', user_id: 'student', category: 'social', is_public: false },
+  ] });
+  const tree = await env.load(path.join(root, 'app/page.tsx')).default({ searchParams: Promise.resolve({ category: ['academic', 'social'] }) });
+  const cards = findElements(tree, node => node.type?.name === 'MessageCard');
+  assert.deepEqual(cards.map(card => card.props.message.id), ['7', '8']);
+  assert.equal(findElements(tree, node => node.type?.name === 'MessageComposer')[0].props.filtered, false);
+});
+
+test('templates follow recipient and category selections', () => {
+  const { templatesFor } = setup().load(path.join(root, 'lib/message-templates.ts'));
+  const { RECIPIENTS } = setup().load(path.join(root, 'lib/message-options.ts'));
+  assert.equal(templatesFor('other', '').length, 6);
+  for (const recipient of RECIPIENTS) {
+    const matches = templatesFor('other', recipient);
+    assert.ok(matches.length > 0, `${recipient} should have a template`);
+    assert.ok(matches.every(template => template.recipient === recipient));
+  }
+  assert.ok(templatesFor('academic', 'Professor').every(template => template.category === 'academic' && template.recipient === 'Professor'));
+  assert.equal(templatesFor('academic', 'Roommate').length, 0);
+  assert.ok(templatesFor('housing', '').every(template => template.category === 'housing'));
 });

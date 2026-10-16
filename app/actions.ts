@@ -192,23 +192,43 @@ export async function setDraftPublication(
   const captionId = formData.get("caption_id");
   const visibility = formData.get("is_public");
   if (!isDraftId(captionId) || (visibility !== "true" && visibility !== "false")) {
+    console.error("[setCaptionPublic] Invalid publish request", {
+      captionId: typeof captionId === "string" ? captionId.slice(0, 64) : null,
+      requestedPublicState: visibility,
+    });
     return { error: "Choose a valid draft and sharing option." };
   }
   const isPublic = visibility === "true";
   try {
-    // This RPC only returns the authenticated caller's rows. Avoid granting
-    // SELECT on user_id, which would reveal Community authors via the Data API.
+    // This RPC checks ownership using auth.uid() without exposing user_id.
+    // The UPDATE policy checks ownership again at mutation time.
     const { data: owned, error: ownerError } = await supabase.rpc("get_my_drafts", { p_draft_id: captionId });
     if (ownerError || !owned?.some((draft: { id: string | number }) => String(draft.id) === captionId)) {
       return { error: "Only the owner can change this draft's sharing setting." };
     }
-    const { data, error } = await supabase.from("captions")
+    const { error } = await supabase.from("captions")
       .update({ is_public: isPublic, published_at: isPublic ? new Date().toISOString() : null })
-      .eq("id", captionId).select("id,is_public").maybeSingle();
-    if (error || !data || data.is_public !== isPublic) {
+      .eq("id", captionId);
+    if (error) {
+      console.error("[setCaptionPublic] Update failed", {
+        captionId,
+        requestedPublicState: isPublic,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
       return { error: "Your sharing setting could not be saved. Please try again." };
     }
-  } catch {
+  } catch (error) {
+    console.error("[setCaptionPublic] Update failed", {
+      captionId,
+      requestedPublicState: isPublic,
+      code: null,
+      message: error instanceof Error ? error.message : String(error),
+      details: null,
+      hint: null,
+    });
     return { error: "Your sharing setting could not be saved. Please try again." };
   }
   revalidatePath("/");

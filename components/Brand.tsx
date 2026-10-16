@@ -11,5 +11,5 @@ export function BrandMark() {
 }
 
 export default function Brand() {
-  return <span className="brand"><BrandMark /><span>Say It <strong>Better</strong><span className="brand-dot">.</span></span></span>;
+  return <span className="brand">Say It Better</span>;
 }

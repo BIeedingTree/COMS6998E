@@ -1,5 +1,7 @@
 # Say It Better — production OAuth configuration
 
+> Configuration reference written before deployment. See [October 14 submission verification](week5-submission-checklist.md) for current live access/login results. The release-status and test-count notes below describe the original implementation, not the current deployed state. Do not reapply SQL or change working OAuth settings solely because of those historical notes.
+
 Canonical production origin: **https://coms-6998-e.vercel.app**.
 
 Repository inspection found no stale preview/localhost production redirects. Login uses `window.location.origin + /auth/callback`; the callback exchanges the Supabase code and uses the incoming request origin for its local return paths. Both are intentionally preserved so supported local/preview sessions stay on their own origin. Stable metadata is configured separately in `lib/site.ts` and `app/layout.tsx`, with route-specific canonical paths.

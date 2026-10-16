@@ -20,4 +20,15 @@ export const MESSAGE_TEMPLATES: MessageTemplate[] = [
   { category: "social", type: "message", recipient: "Friend", label: "Fix an awkward text", text: "Clarify that my last text came across more bluntly than I intended and that I wasn't trying to be rude." },
   { category: "social", type: "message", recipient: "Friend", label: "Make an apology", text: "Apologize to a friend for not following through on our plans. Take responsibility without making excuses." },
   { category: "social", type: "message", recipient: "Date", label: "Ask someone out", text: "Ask someone I've enjoyed talking to if they'd like to get coffee together. Keep it warm and low-pressure." },
+  { category: "career", type: "message", recipient: "Coworker", label: "Ask a coworker for help", text: "Ask a coworker for help with a task I'm stuck on without making it sound like I'm handing the work off to them." },
 ];
+
+export function templatesFor(category: Category, recipient: string): MessageTemplate[] {
+  if (category === "other" && !recipient) {
+    return MESSAGE_TEMPLATES.filter((_, index) => [0, 5, 9, 12, 15, 16].includes(index));
+  }
+  return MESSAGE_TEMPLATES.filter(template =>
+    (category === "other" || template.category === category) &&
+    (!recipient || template.recipient === recipient)
+  );
+}

@@ -16,6 +16,5 @@ export default function PublicPage({ active, children }: {
       </nav>
     </header>
     <main id="main-content" className="public-content">{children}</main>
-    <footer className="public-footer">Built for Columbia & Barnard students.<span>A little help. A lot more like you.</span></footer>
   </div>;
 }
